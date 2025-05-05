@@ -7,7 +7,6 @@ import openpyxl
 import matplotlib.pyplot as plt
 from tksheet import Sheet
 
-
 class ELISAGUI:
     def __init__(self, master):
         """
@@ -279,25 +278,30 @@ class ELISAGUI:
             r  = np.sqrt(r2) if r2>=0 else np.nan
             rmse = np.sqrt(np.mean((all_s-ypred)**2))
 
-            # Compute LoD signal
+            # ——— Compute LoD signal ———
             if 0 in std_map:
                 m0, s0 = np.mean(std_map[0]), np.std(std_map[0])
                 lod_sig = m0 + 3*s0
             else:
-                lod_sig = means[0]/10
-            # Invert LoD to concentration with fallback logic
+                lod_sig = means[0] / 10.0
+
+            # ——— Invert LoD to concentration with improved fallback ———
+            non_zero = concs[concs > 0]
             if method == '4PL':
                 lod_conc = self.inverse_4pl(lod_sig, *popt)
                 if np.isnan(lod_conc) and 0 in std_map:
                     lod_sig_low = m0 - 3*s0
                     lod_conc = self.inverse_4pl(lod_sig_low, *popt)
                 if np.isnan(lod_conc):
-                    lod_conc = concs[-1]
+                    lod_conc = (non_zero.min() / 2) if len(non_zero) else np.nan
+
             elif method == '5PL':
-                lod_conc = concs[0] * 0.5
+                lod_conc = (non_zero.min() / 2) if len(non_zero) else np.nan
+
             elif method == 'Linear':
                 lod_conc = (lod_sig - popt[1]) / popt[0]
-            else:
+
+            else:  # Log-Linear
                 lod_conc = np.exp((np.log(lod_sig) - popt[1]) / popt[0])
 
             # Predict samples if present
@@ -316,6 +320,7 @@ class ELISAGUI:
                             ests.append(np.exp((np.log(s) - popt[1]) / popt[0]))
                 else:
                     ests = [np.nan] * len(sigs)
+
                 # Show sample table
                 df_s = pd.DataFrame({
                     "Sample Name": names,
@@ -333,7 +338,7 @@ class ELISAGUI:
             params = [[labels[i], popt[i], perr[i] if i<len(perr) else ""] for i in range(len(popt))]
             params += [["R", r, ""], ["R²", r2, ""], ["RMSE", rmse, ""],
                        ["LoD Signal", lod_sig, ""], ["LoD Concentration", lod_conc, ""]]
-            df_p = pd.DataFrame(params, columns=["Parameter","Estimate","Std Error"]);
+            df_p = pd.DataFrame(params, columns=["Parameter","Estimate","Std Error"])
             win2 = tk.Toplevel(self.master); win2.title("Parameters & LoD")
             sh2 = Sheet(win2, width=400, height=250); sh2.pack(fill=tk.BOTH, expand=True)
             sh2.set_sheet_data([df_p.columns.tolist()] + df_p.values.tolist())
@@ -343,8 +348,11 @@ class ELISAGUI:
             yf = model_func(xf, *popt)
             plt.figure(figsize=(12,8))
             plt.errorbar(concs, means, yerr=sds, fmt='o', label='Standards')
+
             if have_samples and self.sample_presence.get() == 'present':
-                plt.scatter(sample_concs, sample_sigs, color='orange', label='Samples')
+                # use ests vs sigs
+                plt.scatter(ests, sigs, color='orange', label='Samples')
+
             plt.plot(xf, yf, label=method)
             plt.axhline(lod_sig, linestyle='--', label='LoD signal')
             plt.axvline(lod_conc, linestyle='--', label=f'LoD conc = {lod_conc:.2f}')
@@ -363,7 +371,8 @@ class ELISAGUI:
                     ws.append([])
                 ws.append(['Parameter','Estimate','Std Error'])
                 for row in params: ws.append(row)
-                wb.save(save_path); messagebox.showinfo('Done', f'Saved to {save_path}')
+                wb.save(save_path)
+                messagebox.showinfo('Done', f'Saved to {save_path}')
 
         except RuntimeError:
             messagebox.showwarning(
