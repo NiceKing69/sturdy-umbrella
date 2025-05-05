@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import tkinter as tk
 from scipy.optimize import curve_fit
-from ELISA_GUI_Main import ELISAGUI
+from ELISA_GUI_Main_050125 import ELISAGUI
 
 # Helper to create a hidden GUI instance
 @ pytest.fixture(scope="module")
